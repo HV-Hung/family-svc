@@ -1,0 +1,83 @@
+name: Version
+
+# Triggers when a PR is merged into main
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  version:
+    name: Tag & Bump
+    # Only run if the PR was actually merged
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # push tag + commit back to main
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          # If you have branch protection rules that block GITHUB_TOKEN,
+          # swap this for a PAT: token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve bump type from PR labels
+        id: bump_type
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          echo "PR labels: $LABELS"
+
+          if echo "$LABELS" | grep -q '"major"'; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | grep -q '"minor"'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | grep -q '"patch"'; then
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No version label (major/minor/patch) found on PR – defaulting to patch"
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump VERSION
+        id: versions
+        run: |
+          OLD=$(cat VERSION)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD"
+
+          case "${{ steps.bump_type.outputs.type }}" in
+            major)
+              MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor)
+              MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch)
+              PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          echo "$NEW" > VERSION
+
+          echo "old=${OLD}"  >> "$GITHUB_OUTPUT"
+          echo "new=${NEW}"  >> "$GITHUB_OUTPUT"
+          echo "tag=v${OLD}" >> "$GITHUB_OUTPUT"   # tag the OLD version that was just merged
+
+      - name: Create & push release tag
+        run: |
+          git tag ${{ steps.versions.outputs.tag }} \
+            -m "Release ${{ steps.versions.outputs.tag }}"
+          git push origin ${{ steps.versions.outputs.tag }}
+
+      - name: Commit bumped VERSION to main
+        run: |
+          git add VERSION
+          git commit -m "chore: bump version ${{ steps.versions.outputs.old }} → ${{ steps.versions.outputs.new }} [skip ci]"
+          git push origin main

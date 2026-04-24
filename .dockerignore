@@ -1,0 +1,26 @@
+# Dependencies
+vendor/
+
+# Binary output
+bin/
+main
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Local configuration
+.env
+
+# Docker
+docker-compose*.override.yml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
