@@ -12,6 +12,8 @@ import (
 	"github.com/HV-Hung/family-svc/internal/config"
 	"github.com/HV-Hung/family-svc/internal/database"
 	"github.com/HV-Hung/family-svc/internal/handler"
+	"github.com/HV-Hung/family-svc/internal/middleware"
+	"github.com/HV-Hung/family-svc/internal/telemetry"
 )
 
 func main() {
@@ -40,16 +42,22 @@ func main() {
 	defer pool.Close()
 	slog.Info("database connected")
 
+	// Initialise Prometheus metrics registry
+	reg := telemetry.NewRegistry()
+
 	// Register routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/hello", handler.HelloHandler())
 	mux.HandleFunc("GET /healthz/live", handler.LivenessHandler())
 	mux.HandleFunc("GET /healthz/ready", handler.ReadinessHandler(pool))
+	mux.HandleFunc("GET /metrics", handler.MetricsHandler(reg))
 
-	// Create server
+	// Create server.
+	// Middleware chain (outer → inner): LogRequest → InstrumentHandler → mux
+	// Health-check probes (/healthz/*) are excluded from both logging and metrics.
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
-		Handler:      mux,
+		Handler:      middleware.LogRequest(middleware.InstrumentHandler(reg, mux)),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
